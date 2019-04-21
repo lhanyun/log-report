@@ -1,0 +1,12 @@
+{
+  "extends": "standard",
+  "rules": {
+    "indent": ["error", 2],
+    "space-before-function-paren": ["error", "never"]
+  },
+  "globals": {
+    "Image": true,
+    "location": true,
+    "FormData": true
+  }
+}
