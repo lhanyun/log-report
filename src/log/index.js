@@ -48,3 +48,72 @@ const reportLog2String = function(error, index, config) {
   }
   return [params.join('&'), stringify.join(','), param.join('&')]
 }
+
+export default class Log {
+  constructor(config) {
+    this.config = config
+  }
+
+  // 上报日志
+  processLog(logList, immediately) {
+    const config = this.config
+    if (!config._reportUrl) {
+      return
+    }
+    const randomIgnore = Math.random() >= config.random
+
+    while (logList.length) {
+      let isIgnore = false
+      const reportLog = logList.shift()
+
+      if (config.beforeReport && config.beforeReport(reportLog) === false) {
+        continue
+      }
+      // 有效保证字符不要过长
+      reportLog.msg = (reportLog.msg + '' || '').substr(0, config.maxLength)
+
+      // 重复上报
+      if (isRepeat(reportLog, config.repeat)) {
+        continue
+      }
+      const logStr = reportLog2String(reportLog, submitLogList.length, config)
+      if (isOBJByType(config.ignore, 'Array')) {
+        for (let i = 0, l = config.ignore.length; i < l; i++) {
+          const rule = config.ignore[i]
+          if ((isOBJByType(rule, 'RegExp') && rule.test(logStr[1])) || (isOBJByType(rule, 'Function') && rule(reportLog, logStr[1]))) {
+            isIgnore = true
+            break
+          }
+        }
+      }
+      if (!isIgnore) {
+        const offline = getOfflineDB()
+        config.offlineLog && offline.save2Offline('badjs_' + config.id + config.uin, reportLog, config)
+        if (!randomIgnore && reportLog.level !== 20) {
+          submitLogList.push(logStr[0])
+          config.onReport && (config.onReport(config.id, reportLog))
+        }
+      }
+    }
+
+    if (immediately) {
+      // 立即上报
+      submitLog(config)
+    } else if (!comboTimeout) {
+      // 延迟上报
+      comboTimeout = setTimeout(submitLog.bind(null, config), config.delay)
+    }
+  }
+
+  reportOffline(params) {
+    const { id, uin, url } = this.config
+    const { userAgent } = navigator
+
+    let data = JSON.stringify(Object.assign(params, { userAgent, id, uin }))
+    if (this.config.deflate && window.pako) {
+      data = encodeURIComponent(window.pako.deflate(data, { to: 'string' }))
+    }
+    const _url = url + './offlineLog'
+    send(_url, data, 'post')
+  }
+}
