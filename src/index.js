@@ -96,4 +96,207 @@ export default class WardjsReport {
     })
     return this
   }
+
+  _initError() {
+    const orgError = window.onerror
+    const _this = this
+
+    window.onerror = function(msg, url, line, col, error) {
+      let newMsg = msg
+
+      if (error && error.stack) {
+        newMsg = processStackMsg(error)
+      }
+
+      if (isOBJByType(newMsg, 'Event')) {
+        newMsg += newMsg.type ? ('--' + newMsg.type + '--' + (newMsg.target ? (newMsg.target.tagName + '::' + newMsg.target.src) : '')) : ''
+      }
+
+      _this._push({
+        msg: newMsg,
+        target: url,
+        rowNum: line,
+        colNum: col,
+        _orgMsg: msg
+      })
+
+      orgError && orgError.apply(window, arguments)
+    }
+
+    // badjs 系统查看错误使用
+    typeof console !== 'undefined' && console.error && setTimeout(function() {
+      const err = ((location.hash || '').match(/([#&])BJ_ERROR=([^&$]+)/) || [])[2]
+      err && console.error('BJ_ERROR', decodeURIComponent(err).replace(/(:\d+:\d+)\s*/g, '$1\n'))
+    }, 0)
+  }
+
+  _processLog(immediately = false) {
+    if (logList.length) {
+      this.log.processLog(logList, immediately)
+      logList = []
+    }
+  }
+
+  // 将错误推到错误池
+  _push(msg, immediately) {
+    const data = isOBJ(msg) ? processError(msg) : {
+      msg: msg
+    }
+
+    // ext 有默认值，且上报不包含 ext ， 使用默认 ext
+    if (this.ext && !data.ext) {
+      data.ext = this.ext
+    }
+
+    // 在错误发生时，获取页面链接
+    if (!data.from) {
+      data.from = location.href
+    }
+
+    if (data._orgMsg) {
+      delete data._orgMsg
+      data.level = 2
+      const newData = extend({}, data)
+      newData.level = 4
+      newData.msg = data.msg
+      logList.push(data)
+      logList.push(newData)
+    } else {
+      logList.push(data)
+    }
+
+    this._processLog(immediately)
+    return this
+  }
+
+  // 上报错误
+  report(msg, isReportNow) {
+    msg && this._push(msg, isReportNow)
+    return this
+  }
+
+  // 上报info事件
+  info(msg) {
+    if (!msg) {
+      return this
+    }
+    if (isOBJ(msg)) {
+      msg.level = 2
+    } else {
+      msg = {
+        msg: msg,
+        level: 2
+      }
+    }
+    this._push(msg)
+    return this
+  }
+
+  // 上报 debug 事件
+  debug(msg) {
+    if (!msg) {
+      return this
+    }
+    if (isOBJ(msg)) {
+      msg.level = 1
+    } else {
+      msg = {
+        msg: msg,
+        level: 1
+      }
+    }
+    this._push(msg)
+    return this
+  }
+
+  // 增加离线日志
+  addOfflineLog(msg) {
+    if (!msg) {
+      return this
+    }
+    if (isOBJ(msg)) {
+      msg.level = 20
+    } else {
+      msg = {
+        msg: msg,
+        level: 20
+      }
+    }
+    this._push(msg)
+    return this
+  }
+
+  // 上报离线日志
+  reportOfflineLog() {
+    if (!window.indexedDB) {
+      this.info('unsupport offlineLog')
+      return
+    }
+    const _this = this
+    this.offlineDB.ready(function(err, DB) {
+      if (err || !DB) {
+        return
+      }
+      const startDate = new Date() - 0 - _this.offlineLogExp * 24 * 3600 * 1000
+      const endDate = new Date() - 0
+      DB.getLogs({
+        start: startDate,
+        end: endDate,
+        id: _this.id,
+        uin: _this.uin
+      }, function(err, logs, msgObj, urlObj) {
+        if (err) {
+          console.error(err)
+          return
+        }
+        console.log('offline logs length:', logs.length)
+        const reportData = { logs, msgObj, urlObj, startDate, endDate }
+        if (_this.deflate) {
+          loadPako().then(() => {
+            _this.log.reportOffline(reportData)
+          })
+        } else {
+          _this.log.reportOffline(reportData)
+        }
+      })
+    })
+  }
+
+  // 询问服务器是否上报离线日志
+  _autoReportOffline() {
+    const _this = this
+    const script = document.createElement('script')
+    script.src = `${this.url}/offlineAuto?id=${this.id}&uin=${this.uin}`
+    // 通过 script 的返回值执行回调
+    window._badjsOfflineAuto = function(isReport) {
+      if (isReport) {
+        _this.reportOfflineLog()
+      }
+    }
+    document.head.appendChild(script)
+  }
+
+  // 用于统计上报
+  static monitor(n, monitorUrl = '//report.url.cn/report/report_vm') {
+    // 如果n未定义或者为空，则不处理
+    if (typeof n === 'undefined' || n === '') {
+      return
+    }
+
+    // 如果n不是数组，则将其变成数组。注意这里判断方式不一定完美，却非常简单
+    if (typeof n.join === 'undefined') {
+      n = [n]
+    }
+
+    const p = {
+      monitors: '[' + n.join(',') + ']',
+      _: Math.random()
+    }
+
+    if (monitorUrl) {
+      let _url = monitorUrl + (monitorUrl.match(/\?/) ? '&' : '?') + buildParam(p)
+
+      send(_url)
+    }
+  }
 }

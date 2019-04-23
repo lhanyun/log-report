@@ -28,6 +28,7 @@ export function equal(a, b) {
   return a.toString() === b.toString()
 }
 
+// 返回一个对象类型的error，包含错误所在的行信息
 export function processError(errObj) {
   try {
     if (errObj.stack) {
@@ -57,6 +58,7 @@ export function processError(errObj) {
   }
 }
 
+// 返回一个字符串类型的error，包含错误堆栈信息
 export function processStackMsg(error) {
   let stack = error.stack
     .replace(/\n/gi, '')
